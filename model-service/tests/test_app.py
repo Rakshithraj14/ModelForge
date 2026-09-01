@@ -25,6 +25,10 @@ SAMPLE_TRANSACTION = {
 
 def main() -> None:
     with TestClient(app) as client:
+        root = client.get("/")
+        assert root.status_code == 200
+        assert "endpoints" in root.json()
+
         health = client.get("/health")
         assert health.status_code == 200
         assert health.json()["status"] == "healthy"

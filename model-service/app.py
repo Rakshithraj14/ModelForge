@@ -72,6 +72,18 @@ def require_api_key(authorization: str | None) -> None:
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 
+@app.get("/")
+def root():
+    return {
+        "service": "model-doctor-model-service",
+        "endpoints": {
+            "GET /health": "service + model status",
+            "GET /metadata": "model feature schema and training metrics",
+            "POST /predict": "fraud prediction for a transaction",
+        },
+    }
+
+
 @app.post("/predict")
 def predict(request: PredictRequest, background_tasks: BackgroundTasks, authorization: str | None = Header(default=None)):
     require_api_key(authorization)
