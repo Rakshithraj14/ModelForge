@@ -1,0 +1,25 @@
+roadmap.md
+
+# env / secrets
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# python (model-service)
+model-service/.venv/
+__pycache__/
+*.pyc
+model-service/artifacts/
+model-service/data/*.csv
+!model-service/data/sample_paysim.csv
+
+# node / cloudflare worker
+worker/node_modules/
+worker/.wrangler/
+worker/dist/
+
+# os / editor
+.DS_Store

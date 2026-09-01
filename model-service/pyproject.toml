@@ -1,0 +1,13 @@
+[project]
+name = "model-service"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "joblib>=1.6.0",
+    "pandas>=3.0.5",
+    "python-dotenv>=1.2.3",
+    "scikit-learn>=1.9.0",
+    "uvicorn[standard]>=0.52.4",
+]
