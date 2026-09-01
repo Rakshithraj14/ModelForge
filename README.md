@@ -17,23 +17,41 @@ in D1 with a computed data quality score.
 
 ## Status
 
-- ✅ **V0 — Foundation**: trained model, FastAPI serving, Worker + D1 telemetry ingestion
-- ✅ **V1 — Data Quality**: missing/invalid-value checks against the registered schema,
+- **V0 — Foundation**: trained model, FastAPI serving, Worker + D1 telemetry ingestion
+- **V1 — Data Quality**: missing/invalid-value checks against the registered schema,
   `data_quality_score` stored per telemetry row
-- ⬜ V2 — Drift, V3 — Performance, V4 — Infra metrics, V5 — Alerts, V6 — Health score
+- V2 — Drift, V3 — Performance, V4 — Infra metrics, V5 — Alerts, V6 — Health score
 
 ## model-service
+
+Copy `.env.example` (repo root) to `.env` and fill in `APP_API_KEY`, `TELEMETRY_API_KEY`,
+and `MODEL_DOCTOR_TELEMETRY_URL` (the worker's telemetry endpoint) — needed by both paths
+below.
+
+### Development
 
 ```
 cd model-service
 uv sync
 # place the PaySim CSV at data/paysim.csv (Kaggle: ealaxi/paysim1)
-uv run train.py
+uv run train.py               # data/paysim.csv -> artifacts/model.joblib
 uv run uvicorn app:app --reload
 ```
 
-Copy `.env.example` (repo root) to `.env` and fill in `APP_API_KEY`, `TELEMETRY_API_KEY`,
-and `MODEL_DOCTOR_TELEMETRY_URL` (the worker's telemetry endpoint).
+### Production
+
+The trained artifact never leaves your machine as a file — it's baked into a Docker image
+that gets pushed and pulled, same as any other deploy:
+
+```
+uv run train.py                                    # produces artifacts/
+docker build -t <dockerhub-user>/model-service:v1 . # bundles artifacts/ into the image
+docker push <dockerhub-user>/model-service:v1
+```
+
+On the VPS: `docker pull <dockerhub-user>/model-service:v1 && docker run -d -p 8000:8000
+--env-file .env <dockerhub-user>/model-service:v1` (or point your platform, e.g. Easypanel,
+at the pushed image directly — no repo checkout or build step needed there).
 
 Endpoints: `GET /`, `GET /health`, `GET /metadata`, `POST /predict`.
 
