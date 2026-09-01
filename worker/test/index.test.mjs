@@ -1,6 +1,7 @@
 // Runnable check for the HTTP routes: auth, validation, and wiring to D1.
-// The drift math itself is covered in drift.test.mjs — these tests just check
-// the routes call the database correctly and return the right status codes.
+// The drift/performance math itself is covered in drift.test.mjs and
+// performance.test.mjs — these tests just check the routes call the database
+// correctly and return the right status codes.
 // No Miniflare/wrangler pool needed — Hono's app.fetch(request, env) runs
 // standalone against a stubbed D1 binding.
 // Usage: node --test test/index.test.mjs
@@ -12,24 +13,36 @@ import worker, { scoreDataQuality } from "../src/index.js";
 const SCHEMA = { amount: "float", oldbalanceOrg: "float", type: "string" };
 
 // `models`: { [model_id]: { version, schema_json, baseline_json } }
-// `telemetryRows`: rows returned for the drift-check's telemetry SELECT
-// `latestDriftReport`: row returned for the GET .../drift SELECT
-function fakeDb({ models = {}, telemetryRows = [], latestDriftReport = null, inserts = [] } = {}) {
+// `driftTelemetryRows` / `performanceTelemetryRows`: rows for each check's own SELECT
+// `latestDriftReport` / `latestPerformanceReport`: rows for each GET's SELECT
+// `labelUpdateChanges`: simulated `changes` count for the labels UPDATE
+function fakeDb({
+  models = {},
+  driftTelemetryRows = [],
+  performanceTelemetryRows = [],
+  latestDriftReport = null,
+  latestPerformanceReport = null,
+  labelUpdateChanges = 1,
+  inserts = [],
+} = {}) {
   return {
     prepare(sql) {
       return {
         bind(...args) {
           const run = async () => {
             inserts.push({ sql, args });
-            return { success: true };
+            if (sql.startsWith("UPDATE")) return { meta: { changes: labelUpdateChanges } };
+            return { success: true, meta: {} };
           };
           const first = async () => {
-            if (sql.includes("FROM models")) return models[args[0]] ?? null;
             if (sql.includes("FROM drift_reports")) return latestDriftReport;
+            if (sql.includes("FROM performance_reports")) return latestPerformanceReport;
+            if (sql.includes("FROM models")) return models[args[0]] ?? null;
             return null;
           };
           const all = async () => {
-            if (sql.includes("FROM telemetry")) return { results: telemetryRows };
+            if (sql.startsWith("SELECT features_json")) return { results: driftTelemetryRows };
+            if (sql.startsWith("SELECT prediction, actual")) return { results: performanceTelemetryRows };
             return { results: [] };
           };
           return { run, first, all };
@@ -120,11 +133,11 @@ test("POST .../drift/run: computes and stores a report when telemetry exists", a
   const inserts = [];
   const baseline = { numeric: { amount: { bin_edges: [0, 100, 200], bin_proportions: [0.5, 0.5] } }, categorical: {} };
   const models = { "fraud-detector": { ...REGISTERED_MODEL, baseline_json: JSON.stringify(baseline) } };
-  const telemetryRows = [{ features_json: JSON.stringify({ amount: 50 }) }, { features_json: JSON.stringify({ amount: 150 }) }];
+  const driftTelemetryRows = [{ features_json: JSON.stringify({ amount: 50 }) }, { features_json: JSON.stringify({ amount: 150 }) }];
 
   const res = await worker.fetch(request("POST", "/api/v1/models/fraud-detector/drift/run"), {
     ...ENV,
-    DB: fakeDb({ models, telemetryRows, inserts }),
+    DB: fakeDb({ models, driftTelemetryRows, inserts }),
   });
   assert.strictEqual(res.status, 200);
   const body = await res.json();
@@ -152,4 +165,67 @@ test("GET .../drift: returns the latest stored report", async () => {
   const body = await res.json();
   assert.deepStrictEqual(body.scores, { amount: 0.02 });
   assert.strictEqual(body.max_severity, "LOW");
+});
+
+test("POST /api/v1/labels: rejects a payload with an invalid actual value", async () => {
+  const res = await worker.fetch(request("POST", "/api/v1/labels", { body: { prediction_id: "abc", actual: 2 } }), {
+    ...ENV,
+    DB: fakeDb(),
+  });
+  assert.strictEqual(res.status, 422);
+});
+
+test("POST /api/v1/labels: 404s when the prediction_id doesn't match any row", async () => {
+  const res = await worker.fetch(request("POST", "/api/v1/labels", { body: { prediction_id: "missing", actual: 1 } }), {
+    ...ENV,
+    DB: fakeDb({ labelUpdateChanges: 0 }),
+  });
+  assert.strictEqual(res.status, 404);
+});
+
+test("POST /api/v1/labels: updates the matching telemetry row", async () => {
+  const inserts = [];
+  const res = await worker.fetch(request("POST", "/api/v1/labels", { body: { prediction_id: "abc-123", actual: 1 } }), {
+    ...ENV,
+    DB: fakeDb({ labelUpdateChanges: 1, inserts }),
+  });
+  assert.strictEqual(res.status, 200);
+  assert.match(inserts[0].sql, /UPDATE telemetry SET actual/);
+  assert.deepStrictEqual(inserts[0].args, [1, "abc-123"]);
+});
+
+test("POST .../performance/run: 404s when there's no labeled telemetry", async () => {
+  const res = await worker.fetch(request("POST", "/api/v1/models/fraud-detector/performance/run"), {
+    ...ENV,
+    DB: fakeDb({ performanceTelemetryRows: [] }),
+  });
+  assert.strictEqual(res.status, 404);
+});
+
+test("POST .../performance/run: computes and stores metrics from labeled telemetry", async () => {
+  const inserts = [];
+  const performanceTelemetryRows = [
+    { prediction: 1, actual: 1 },
+    { prediction: 0, actual: 0 },
+  ];
+  const res = await worker.fetch(request("POST", "/api/v1/models/fraud-detector/performance/run"), {
+    ...ENV,
+    DB: fakeDb({ performanceTelemetryRows, inserts }),
+  });
+  assert.strictEqual(res.status, 200);
+  const body = await res.json();
+  assert.strictEqual(body.sample_size, 2);
+  assert.strictEqual(body.accuracy, 1);
+  assert.match(inserts[0].sql, /INSERT INTO performance_reports/);
+});
+
+test("GET .../performance: returns the latest stored report", async () => {
+  const latestPerformanceReport = { ts: "2026-01-01T00:00:00.000Z", sample_size: 10, accuracy: 0.9, precision: 0.8, recall: 0.7, f1: 0.75 };
+  const res = await worker.fetch(request("GET", "/api/v1/models/fraud-detector/performance"), {
+    ...ENV,
+    DB: fakeDb({ latestPerformanceReport }),
+  });
+  assert.strictEqual(res.status, 200);
+  const body = await res.json();
+  assert.strictEqual(body.accuracy, 0.9);
 });
