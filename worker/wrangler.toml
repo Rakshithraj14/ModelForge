@@ -5,4 +5,4 @@ compatibility_date = "2026-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "model-doctor"
-database_id = "REPLACE_ME_AFTER_WRANGLER_D1_CREATE"
+database_id = "fcbbfc0d-9b5a-4140-9253-1fe4e2615590"
