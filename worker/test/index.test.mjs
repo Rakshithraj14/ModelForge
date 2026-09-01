@@ -28,7 +28,7 @@ function fakeDb({ model = null, inserts = [] } = {}) {
 }
 
 const ENV = { TELEMETRY_API_KEY: "secret123" };
-const REGISTERED_MODEL = { schema_json: JSON.stringify(SCHEMA) };
+const REGISTERED_MODEL = { version: "v1", schema_json: JSON.stringify(SCHEMA) };
 const VALID_BODY = {
   model_id: "fraud-detector",
   features: { amount: 100, oldbalanceOrg: 100, type: "PAYMENT" },
@@ -95,5 +95,6 @@ test("inserts telemetry with a computed data_quality_score when authorized and v
   assert.strictEqual(inserts.length, 1);
   assert.match(inserts[0].sql, /INSERT INTO telemetry/);
   assert.strictEqual(inserts[0].args[0], "fraud-detector");
-  assert.strictEqual(inserts[0].args[6], 100);
+  assert.strictEqual(inserts[0].args[1], "v1");
+  assert.strictEqual(inserts[0].args[7], 100);
 });

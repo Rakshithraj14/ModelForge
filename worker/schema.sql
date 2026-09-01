@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS models (
 CREATE TABLE IF NOT EXISTS telemetry (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   model_id TEXT NOT NULL REFERENCES models(model_id),
+  model_version TEXT,
   ts TEXT NOT NULL,
   features_json TEXT NOT NULL,
   prediction INTEGER NOT NULL,

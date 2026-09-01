@@ -36,7 +36,9 @@ app.post("/api/v1/telemetry", async (c) => {
     return c.json({ error: "model_id, features, prediction, and probability are required" }, 422);
   }
 
-  const model = await c.env.DB.prepare("SELECT schema_json FROM models WHERE model_id = ?").bind(model_id).first();
+  const model = await c.env.DB.prepare("SELECT version, schema_json FROM models WHERE model_id = ?")
+    .bind(model_id)
+    .first();
   if (!model) {
     return c.json({ error: `model_id '${model_id}' is not registered` }, 404);
   }
@@ -44,9 +46,18 @@ app.post("/api/v1/telemetry", async (c) => {
   const dataQualityScore = scoreDataQuality(JSON.parse(model.schema_json), features);
 
   await c.env.DB.prepare(
-    "INSERT INTO telemetry (model_id, ts, features_json, prediction, probability, latency_ms, data_quality_score) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO telemetry (model_id, model_version, ts, features_json, prediction, probability, latency_ms, data_quality_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
   )
-    .bind(model_id, new Date().toISOString(), JSON.stringify(features), prediction, probability, latency_ms ?? null, dataQualityScore)
+    .bind(
+      model_id,
+      model.version,
+      new Date().toISOString(),
+      JSON.stringify(features),
+      prediction,
+      probability,
+      latency_ms ?? null,
+      dataQualityScore
+    )
     .run();
 
   return c.json({ status: "ok", data_quality_score: dataQualityScore }, 201);
