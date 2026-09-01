@@ -58,7 +58,11 @@ def send_telemetry(model_id: str, features: dict, prediction: int, probability: 
         url,
         data=payload,
         method="POST",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "User-Agent": "modelforge-model-service/1.0",
+        },
     )
     try:
         urllib.request.urlopen(request, timeout=5)
