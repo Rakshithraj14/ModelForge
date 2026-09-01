@@ -6,3 +6,6 @@ compatibility_date = "2026-09-01"
 binding = "DB"
 database_name = "model-doctor"
 database_id = "fcbbfc0d-9b5a-4140-9253-1fe4e2615590"
+
+[triggers]
+crons = ["*/15 * * * *"]

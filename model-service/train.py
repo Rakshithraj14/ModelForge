@@ -29,6 +29,29 @@ def load_data(csv_path: str, sample_size: int) -> pd.DataFrame:
     return df
 
 
+def compute_baseline(df: pd.DataFrame) -> dict:
+    """Reference distribution for drift detection: bin edges + the actual
+    training proportion per bin for each numeric feature, and category
+    proportions for the categorical feature. The Worker buckets live traffic
+    into these same bins later and compares proportions (PSI) — it never
+    needs the raw training data.
+
+    Deciles collapse to fewer bins when a column has many duplicate values
+    (e.g. balances that are frequently exactly 0), so proportions are stored
+    explicitly rather than assumed uniform."""
+    numeric = {}
+    for col in NUMERIC_FEATURES:
+        edges = sorted(set(df[col].quantile([i / 10 for i in range(11)]).tolist()))
+        if len(edges) < 2:  # a near-constant column collapses to one bin
+            edges = [df[col].min(), df[col].max() + 1]
+        bins = pd.cut(df[col], bins=edges, include_lowest=True)
+        proportions = bins.value_counts(normalize=True, sort=False).tolist()
+        numeric[col] = {"bin_edges": edges, "bin_proportions": proportions}
+
+    categorical = {col: df[col].value_counts(normalize=True).to_dict() for col in CATEGORICAL_FEATURES}
+    return {"numeric": numeric, "categorical": categorical}
+
+
 def train(csv_path: str, sample_size: int, version: str) -> None:
     df = load_data(csv_path, sample_size)
     x_train, x_test, y_train, y_test = train_test_split(
@@ -52,6 +75,10 @@ def train(csv_path: str, sample_size: int, version: str) -> None:
 
     os.makedirs(ARTIFACT_DIR, exist_ok=True)
     joblib.dump(pipeline, os.path.join(ARTIFACT_DIR, "model.joblib"))
+
+    baseline = compute_baseline(df)
+    with open(os.path.join(ARTIFACT_DIR, "baseline.json"), "w") as f:
+        json.dump(baseline, f, indent=2)
 
     metadata = {
         "model": "fraud-detector",
