@@ -1,0 +1,3 @@
+# Local dev secrets (wrangler auto-loads .dev.vars). Copy to .dev.vars and fill in.
+# Must match TELEMETRY_API_KEY in the repo-root .env used by model-service.
+TELEMETRY_API_KEY=

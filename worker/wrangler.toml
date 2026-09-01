@@ -1,0 +1,8 @@
+name = "model-doctor"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "model-doctor"
+database_id = "REPLACE_ME_AFTER_WRANGLER_D1_CREATE"

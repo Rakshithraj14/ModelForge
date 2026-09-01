@@ -1,0 +1,19 @@
+{
+  "name": "model-doctor-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test",
+    "db:init:local": "wrangler d1 execute model-doctor --local --file=schema.sql && wrangler d1 execute model-doctor --local --file=seed.sql",
+    "db:init:remote": "wrangler d1 execute model-doctor --remote --file=schema.sql && wrangler d1 execute model-doctor --remote --file=seed.sql"
+  },
+  "dependencies": {
+    "hono": "^4.13.5"
+  },
+  "devDependencies": {
+    "wrangler": "^4.127.1"
+  }
+}
