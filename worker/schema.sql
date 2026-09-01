@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS telemetry (
   features_json TEXT NOT NULL,
   prediction INTEGER NOT NULL,
   probability REAL NOT NULL,
-  latency_ms REAL
+  latency_ms REAL,
+  data_quality_score REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_telemetry_model_ts ON telemetry(model_id, ts);
