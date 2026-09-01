@@ -42,6 +42,7 @@ def main() -> None:
         body = prediction.json()
         assert body["prediction"] in (0, 1)
         assert 0.0 <= body["probability"] <= 1.0
+        assert len(body["prediction_id"]) == 36  # uuid4
 
         bad_type = client.post("/predict", json={**SAMPLE_TRANSACTION, "type": "NOT_A_TYPE"})
         assert bad_type.status_code == 422

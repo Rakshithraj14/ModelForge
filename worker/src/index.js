@@ -1,8 +1,10 @@
 import { Hono } from "hono";
 import { computeDriftReport } from "./drift.js";
+import { computePerformance } from "./performance.js";
 
 const app = new Hono();
 const DRIFT_SAMPLE_SIZE = 100;
+const PERFORMANCE_SAMPLE_SIZE = 200;
 
 // Checks incoming features against the model's registered schema: missing
 // (absent/null) or invalid (wrong type, or negative for numeric fields —
@@ -57,11 +59,33 @@ export async function runDriftCheck(db, modelId, sampleSize = DRIFT_SAMPLE_SIZE)
   return { sample_size: samples.length, ...report };
 }
 
+// Same shape as runDriftCheck: pulls the most recently *labeled* telemetry
+// (actual IS NOT NULL) and scores predictions against ground truth. Returns
+// null when there's nothing labeled yet.
+export async function runPerformanceCheck(db, modelId, sampleSize = PERFORMANCE_SAMPLE_SIZE) {
+  const { results } = await db
+    .prepare("SELECT prediction, actual FROM telemetry WHERE model_id = ? AND actual IS NOT NULL ORDER BY id DESC LIMIT ?")
+    .bind(modelId, sampleSize)
+    .all();
+  if (results.length === 0) return null;
+
+  const metrics = computePerformance(results);
+
+  await db
+    .prepare(
+      "INSERT INTO performance_reports (model_id, ts, sample_size, accuracy, precision, recall, f1) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    )
+    .bind(modelId, new Date().toISOString(), results.length, metrics.accuracy, metrics.precision, metrics.recall, metrics.f1)
+    .run();
+
+  return { sample_size: results.length, ...metrics };
+}
+
 app.post("/api/v1/telemetry", async (c) => {
   if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
 
   const body = await c.req.json();
-  const { model_id, features, prediction, probability, latency_ms } = body;
+  const { model_id, prediction_id, features, prediction, probability, latency_ms } = body;
   if (!model_id || !features || prediction === undefined || probability === undefined) {
     return c.json({ error: "model_id, features, prediction, and probability are required" }, 422);
   }
@@ -76,11 +100,12 @@ app.post("/api/v1/telemetry", async (c) => {
   const dataQualityScore = scoreDataQuality(JSON.parse(model.schema_json), features);
 
   await c.env.DB.prepare(
-    "INSERT INTO telemetry (model_id, model_version, ts, features_json, prediction, probability, latency_ms, data_quality_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO telemetry (model_id, model_version, prediction_id, ts, features_json, prediction, probability, latency_ms, data_quality_score) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   )
     .bind(
       model_id,
       model.version,
+      prediction_id ?? null,
       new Date().toISOString(),
       JSON.stringify(features),
       prediction,
@@ -91,6 +116,24 @@ app.post("/api/v1/telemetry", async (c) => {
     .run();
 
   return c.json({ status: "ok", data_quality_score: dataQualityScore }, 201);
+});
+
+app.post("/api/v1/labels", async (c) => {
+  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
+
+  const { prediction_id, actual } = await c.req.json();
+  if (!prediction_id || (actual !== 0 && actual !== 1)) {
+    return c.json({ error: "prediction_id and actual (0 or 1) are required" }, 422);
+  }
+
+  const { meta } = await c.env.DB.prepare("UPDATE telemetry SET actual = ? WHERE prediction_id = ?")
+    .bind(actual, prediction_id)
+    .run();
+  if (meta.changes === 0) {
+    return c.json({ error: `prediction_id '${prediction_id}' not found` }, 404);
+  }
+
+  return c.json({ status: "ok" });
 });
 
 app.post("/api/v1/models/:model_id/drift/run", async (c) => {
@@ -111,10 +154,32 @@ app.get("/api/v1/models/:model_id/drift", async (c) => {
   return c.json({ ts: row.ts, sample_size: row.sample_size, scores: JSON.parse(row.scores_json), max_severity: row.max_severity });
 });
 
+app.post("/api/v1/models/:model_id/performance/run", async (c) => {
+  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
+  const report = await runPerformanceCheck(c.env.DB, c.req.param("model_id"));
+  if (!report) return c.json({ error: "no labeled telemetry to analyze" }, 404);
+  return c.json(report);
+});
+
+app.get("/api/v1/models/:model_id/performance", async (c) => {
+  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
+  const row = await c.env.DB.prepare(
+    "SELECT ts, sample_size, accuracy, precision, recall, f1 FROM performance_reports WHERE model_id = ? ORDER BY id DESC LIMIT 1"
+  )
+    .bind(c.req.param("model_id"))
+    .first();
+  if (!row) return c.json({ error: "no performance report yet" }, 404);
+  return c.json(row);
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(_event, env, ctx) {
-    const { results } = await env.DB.prepare("SELECT model_id FROM models WHERE baseline_json IS NOT NULL").all();
-    ctx.waitUntil(Promise.all(results.map((row) => runDriftCheck(env.DB, row.model_id))));
+    const { results } = await env.DB.prepare("SELECT model_id FROM models").all();
+    ctx.waitUntil(
+      Promise.all(
+        results.flatMap((row) => [runDriftCheck(env.DB, row.model_id), runPerformanceCheck(env.DB, row.model_id)])
+      )
+    );
   },
 };

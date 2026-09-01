@@ -2,6 +2,7 @@ import json
 import os
 import time
 import urllib.request
+import uuid
 from contextlib import asynccontextmanager
 
 import joblib
@@ -40,7 +41,9 @@ class PredictRequest(BaseModel):
     newbalanceDest: float
 
 
-def send_telemetry(model_id: str, features: dict, prediction: int, probability: float, latency_ms: float) -> None:
+def send_telemetry(
+    model_id: str, prediction_id: str, features: dict, prediction: int, probability: float, latency_ms: float
+) -> None:
     url = os.environ.get("MODEL_DOCTOR_TELEMETRY_URL")
     key = os.environ.get("TELEMETRY_API_KEY")
     if not url or not key:
@@ -48,6 +51,7 @@ def send_telemetry(model_id: str, features: dict, prediction: int, probability: 
     payload = json.dumps(
         {
             "model_id": model_id,
+            "prediction_id": prediction_id,
             "features": features,
             "prediction": prediction,
             "probability": probability,
@@ -100,13 +104,19 @@ def predict(request: PredictRequest, background_tasks: BackgroundTasks, authoriz
     probability = float(state["pipeline"].predict_proba(row)[0, 1])
     prediction = int(probability >= 0.5)
     latency_ms = (time.perf_counter() - start) * 1000
+    prediction_id = str(uuid.uuid4())
 
     metadata = state["metadata"]
     background_tasks.add_task(
-        send_telemetry, metadata["model"], features, prediction, probability, latency_ms
+        send_telemetry, metadata["model"], prediction_id, features, prediction, probability, latency_ms
     )
 
-    return {"prediction": prediction, "probability": probability, "model_version": metadata["version"]}
+    return {
+        "prediction_id": prediction_id,
+        "prediction": prediction,
+        "probability": probability,
+        "model_version": metadata["version"],
+    }
 
 
 @app.get("/health")
