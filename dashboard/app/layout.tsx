@@ -22,9 +22,16 @@ const satoshi = localFont({
   display: "swap",
 });
 
+const title = "ModelForge | Model Doctor";
+const description = "Health monitoring for the fraud-detector model: data quality, drift, performance and alerts.";
+
+// The share image itself comes from app/opengraph-image.jpg. On Vercel, Next resolves it
+// to an absolute URL from the deployment's domain, which is what Telegram and others need.
 export const metadata: Metadata = {
-  title: "ModelForge | Model Doctor",
-  description: "Health monitoring for the fraud-detector model: data quality, drift, performance and alerts.",
+  title,
+  description,
+  openGraph: { title, description, siteName: "ModelForge", type: "website" },
+  twitter: { card: "summary_large_image", title, description },
 };
 
 // Runs before first paint: applies a saved theme (no light flash for dark-mode users) and
