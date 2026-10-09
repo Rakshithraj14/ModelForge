@@ -1,10 +1,13 @@
 import { Hono } from "hono";
+import { sendAlert } from "./alerts.js";
 import { computeDriftReport } from "./drift.js";
 import { computePerformance } from "./performance.js";
 
 const app = new Hono();
 const DRIFT_SAMPLE_SIZE = 100;
 const PERFORMANCE_SAMPLE_SIZE = 200;
+// training recall on fraud was 1.0 (see model-service artifacts/metadata.json)
+const RECALL_ALERT_THRESHOLD = 0.8;
 
 // Checks incoming features against the model's registered schema: missing
 // (absent/null) or invalid (wrong type, or negative for numeric fields —
@@ -28,15 +31,30 @@ export function scoreDataQuality(schema, features) {
   return Math.round(((fields.length - bad) / fields.length) * 100);
 }
 
-function requireAuth(c) {
-  return c.req.header("Authorization") === `Bearer ${c.env.TELEMETRY_API_KEY}`;
+function bearerToken(c) {
+  const header = c.req.header("Authorization") ?? "";
+  return header.startsWith("Bearer ") ? header.slice(7) : "";
+}
+
+// TELEMETRY_API_KEY writes (ingest, label, trigger checks); READ_API_KEY only reads
+// reports, so a dashboard can't inject data if its key leaks. An unset secret
+// never matches: the token must be non-empty.
+function canWrite(c) {
+  const token = bearerToken(c);
+  return token !== "" && token === c.env.TELEMETRY_API_KEY;
+}
+
+function canRead(c) {
+  const token = bearerToken(c);
+  return token !== "" && (token === c.env.TELEMETRY_API_KEY || token === c.env.READ_API_KEY);
 }
 
 // Pulls the most recent telemetry for a model, scores it against the model's
 // training baseline, and stores the report. Returns null when there's either
 // no baseline yet or no telemetry to analyze — both are "nothing to do", not
 // errors, so callers can skip storing anything.
-export async function runDriftCheck(db, modelId, sampleSize = DRIFT_SAMPLE_SIZE) {
+export async function runDriftCheck(env, modelId, sampleSize = DRIFT_SAMPLE_SIZE) {
+  const db = env.DB;
   const model = await db.prepare("SELECT baseline_json FROM models WHERE model_id = ?").bind(modelId).first();
   if (!model || !model.baseline_json) return null;
 
@@ -56,13 +74,27 @@ export async function runDriftCheck(db, modelId, sampleSize = DRIFT_SAMPLE_SIZE)
     .bind(modelId, new Date().toISOString(), samples.length, JSON.stringify(report.scores), report.max_severity)
     .run();
 
+  if (report.max_severity === "HIGH") {
+    const drifted = Object.entries(report.scores)
+      .filter(([, score]) => score >= 0.25)
+      .map(([feature, score]) => `${feature}: PSI ${score.toFixed(2)}`)
+      .join("\n");
+    await sendAlert(env, {
+      model_id: modelId,
+      kind: "drift",
+      severity: "HIGH",
+      message: `Feature drift detected over the last ${samples.length} predictions (threshold 0.25):\n${drifted}`,
+    });
+  }
+
   return { sample_size: samples.length, ...report };
 }
 
 // Same shape as runDriftCheck: pulls the most recently *labeled* telemetry
 // (actual IS NOT NULL) and scores predictions against ground truth. Returns
 // null when there's nothing labeled yet.
-export async function runPerformanceCheck(db, modelId, sampleSize = PERFORMANCE_SAMPLE_SIZE) {
+export async function runPerformanceCheck(env, modelId, sampleSize = PERFORMANCE_SAMPLE_SIZE) {
+  const db = env.DB;
   const { results } = await db
     .prepare("SELECT prediction, actual FROM telemetry WHERE model_id = ? AND actual IS NOT NULL ORDER BY id DESC LIMIT ?")
     .bind(modelId, sampleSize)
@@ -78,11 +110,22 @@ export async function runPerformanceCheck(db, modelId, sampleSize = PERFORMANCE_
     .bind(modelId, new Date().toISOString(), results.length, metrics.accuracy, metrics.precision, metrics.recall, metrics.f1)
     .run();
 
+  // recall is 0 by definition when no fraud case is labeled yet — that's "no data", not "degraded"
+  const fraudCases = results.filter((row) => row.actual === 1).length;
+  if (fraudCases > 0 && metrics.recall < RECALL_ALERT_THRESHOLD) {
+    await sendAlert(env, {
+      model_id: modelId,
+      kind: "performance",
+      severity: "DEGRADED",
+      message: `Recall dropped to ${metrics.recall.toFixed(2)} (threshold ${RECALL_ALERT_THRESHOLD}): missed ${Math.round((1 - metrics.recall) * fraudCases)} of ${fraudCases} labeled fraud cases.\nAccuracy ${metrics.accuracy.toFixed(2)}, precision ${metrics.precision.toFixed(2)}, F1 ${metrics.f1.toFixed(2)}.`,
+    });
+  }
+
   return { sample_size: results.length, ...metrics };
 }
 
 app.post("/api/v1/telemetry", async (c) => {
-  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!canWrite(c)) return c.json({ error: "unauthorized" }, 401);
 
   const body = await c.req.json();
   const { model_id, prediction_id, features, prediction, probability, latency_ms } = body;
@@ -119,7 +162,7 @@ app.post("/api/v1/telemetry", async (c) => {
 });
 
 app.post("/api/v1/labels", async (c) => {
-  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!canWrite(c)) return c.json({ error: "unauthorized" }, 401);
 
   const { prediction_id, actual } = await c.req.json();
   if (!prediction_id || (actual !== 0 && actual !== 1)) {
@@ -137,14 +180,14 @@ app.post("/api/v1/labels", async (c) => {
 });
 
 app.post("/api/v1/models/:model_id/drift/run", async (c) => {
-  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
-  const report = await runDriftCheck(c.env.DB, c.req.param("model_id"));
+  if (!canWrite(c)) return c.json({ error: "unauthorized" }, 401);
+  const report = await runDriftCheck(c.env, c.req.param("model_id"));
   if (!report) return c.json({ error: "no baseline registered or no telemetry to analyze" }, 404);
   return c.json(report);
 });
 
 app.get("/api/v1/models/:model_id/drift", async (c) => {
-  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!canRead(c)) return c.json({ error: "unauthorized" }, 401);
   const row = await c.env.DB.prepare(
     "SELECT ts, sample_size, scores_json, max_severity FROM drift_reports WHERE model_id = ? ORDER BY id DESC LIMIT 1"
   )
@@ -155,14 +198,14 @@ app.get("/api/v1/models/:model_id/drift", async (c) => {
 });
 
 app.post("/api/v1/models/:model_id/performance/run", async (c) => {
-  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
-  const report = await runPerformanceCheck(c.env.DB, c.req.param("model_id"));
+  if (!canWrite(c)) return c.json({ error: "unauthorized" }, 401);
+  const report = await runPerformanceCheck(c.env, c.req.param("model_id"));
   if (!report) return c.json({ error: "no labeled telemetry to analyze" }, 404);
   return c.json(report);
 });
 
 app.get("/api/v1/models/:model_id/performance", async (c) => {
-  if (!requireAuth(c)) return c.json({ error: "unauthorized" }, 401);
+  if (!canRead(c)) return c.json({ error: "unauthorized" }, 401);
   const row = await c.env.DB.prepare(
     "SELECT ts, sample_size, accuracy, precision, recall, f1 FROM performance_reports WHERE model_id = ? ORDER BY id DESC LIMIT 1"
   )
@@ -172,14 +215,22 @@ app.get("/api/v1/models/:model_id/performance", async (c) => {
   return c.json(row);
 });
 
+app.get("/api/v1/models/:model_id/alerts", async (c) => {
+  if (!canRead(c)) return c.json({ error: "unauthorized" }, 401);
+  const { results } = await c.env.DB.prepare(
+    "SELECT ts, kind, severity, message FROM alerts WHERE model_id = ? ORDER BY id DESC LIMIT 50"
+  )
+    .bind(c.req.param("model_id"))
+    .all();
+  return c.json(results);
+});
+
 export default {
   fetch: app.fetch,
   async scheduled(_event, env, ctx) {
     const { results } = await env.DB.prepare("SELECT model_id FROM models").all();
     ctx.waitUntil(
-      Promise.all(
-        results.flatMap((row) => [runDriftCheck(env.DB, row.model_id), runPerformanceCheck(env.DB, row.model_id)])
-      )
+      Promise.all(results.flatMap((row) => [runDriftCheck(env, row.model_id), runPerformanceCheck(env, row.model_id)]))
     );
   },
 };

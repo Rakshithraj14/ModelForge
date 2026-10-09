@@ -1,3 +1,17 @@
 # Local dev secrets (wrangler auto-loads .dev.vars). Copy to .dev.vars and fill in.
+# In production set each with: npx wrangler secret put <NAME>
+
 # Must match TELEMETRY_API_KEY in the repo-root .env used by model-service.
+# Full access: ingest telemetry, attach labels, trigger checks.
 TELEMETRY_API_KEY=
+
+# Read-only: the GET report endpoints only. Give this to dashboards, never the one above.
+READ_API_KEY=
+
+# Optional alert channels — leave blank to skip. Telegram: create a bot with
+# @BotFather for the token; send the bot a message, then read your chat id from
+# https://api.telegram.org/bot<TOKEN>/getUpdates
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+# Any URL that accepts a JSON POST: {model_id, kind, severity, message}
+ALERT_WEBHOOK_URL=

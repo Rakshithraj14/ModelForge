@@ -229,3 +229,37 @@ test("GET .../performance: returns the latest stored report", async () => {
   const body = await res.json();
   assert.strictEqual(body.accuracy, 0.9);
 });
+
+test("auth: the read key can read reports", async () => {
+  const latestDriftReport = { ts: "2026-01-01T00:00:00.000Z", sample_size: 5, scores_json: "{}", max_severity: "LOW" };
+  const res = await worker.fetch(
+    request("GET", "/api/v1/models/fraud-detector/drift", { headers: { Authorization: "Bearer reader" } }),
+    { ...ENV, READ_API_KEY: "reader", DB: fakeDb({ latestDriftReport }) }
+  );
+  assert.strictEqual(res.status, 200);
+});
+
+test("auth: the read key cannot write telemetry, labels, or trigger checks", async () => {
+  const env = { ...ENV, READ_API_KEY: "reader", DB: fakeDb({ models: { "fraud-detector": REGISTERED_MODEL } }) };
+  const headers = { Authorization: "Bearer reader" };
+  for (const [path, body] of [
+    ["/api/v1/telemetry", VALID_BODY],
+    ["/api/v1/labels", { prediction_id: "abc", actual: 1 }],
+    ["/api/v1/models/fraud-detector/drift/run", undefined],
+    ["/api/v1/models/fraud-detector/performance/run", undefined],
+  ]) {
+    const res = await worker.fetch(request("POST", path, { body, headers }), env);
+    assert.strictEqual(res.status, 401, path);
+  }
+});
+
+test("auth: an unset secret never matches, even 'Bearer undefined'", async () => {
+  const env = { DB: fakeDb({ models: { "fraud-detector": REGISTERED_MODEL } }) }; // no keys configured
+  for (const token of ["undefined", ""]) {
+    const res = await worker.fetch(
+      request("POST", "/api/v1/telemetry", { body: VALID_BODY, headers: { Authorization: `Bearer ${token}` } }),
+      env
+    );
+    assert.strictEqual(res.status, 401, `token '${token}'`);
+  }
+});
