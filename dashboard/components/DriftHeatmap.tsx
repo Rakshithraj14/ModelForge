@@ -106,7 +106,7 @@ export function DriftHeatmap({ days, onSelect }: { days: DayRecord[]; onSelect: 
           <div className="mb-1 text-ink-2">{FEATURE_LABELS[FEATURES[active.f]]}</div>
           {a.drift ? (
             <>
-              <TipRow label="PSI" value={a.drift.scores[FEATURES[active.f]].toFixed(3)} />
+              <TipRow label="PSI" value={a.drift.scores[FEATURES[active.f]]?.toFixed(3) ?? "not measured"} />
               <TipRow label="Sample" value={`${a.drift.sample_size} predictions`} />
             </>
           ) : (

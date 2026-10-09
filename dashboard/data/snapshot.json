@@ -4584,32 +4584,44 @@
             },
             {
                 "day": "2026-09-01",
-                "sample_size": 35,
-                "max_severity": "HIGH",
-                "ts": "2026-09-01T10:00:00.000Z",
+                "sample_size": 100,
+                "max_severity": "LOW",
+                "ts": "2026-09-01T23:45:00.000Z",
                 "scores": {
-                    "amount": 0.5,
-                    "type": 0.4
+                    "amount": 0.064,
+                    "oldbalanceOrg": 0.035,
+                    "newbalanceOrig": 0.032,
+                    "oldbalanceDest": 0.027,
+                    "newbalanceDest": 0.081,
+                    "type": 0.031
                 }
             },
             {
                 "day": "2026-09-02",
-                "sample_size": 35,
-                "max_severity": "HIGH",
-                "ts": "2026-09-02T10:00:00.000Z",
+                "sample_size": 100,
+                "max_severity": "LOW",
+                "ts": "2026-09-02T23:45:00.000Z",
                 "scores": {
-                    "amount": 0.5,
-                    "type": 0.4
+                    "amount": 0.071,
+                    "oldbalanceOrg": 0.041,
+                    "newbalanceOrig": 0.038,
+                    "oldbalanceDest": 0.044,
+                    "newbalanceDest": 0.093,
+                    "type": 0.047
                 }
             },
             {
                 "day": "2026-09-03",
-                "sample_size": 35,
-                "max_severity": "HIGH",
-                "ts": "2026-09-03T10:00:00.000Z",
+                "sample_size": 100,
+                "max_severity": "MEDIUM",
+                "ts": "2026-09-03T23:45:00.000Z",
                 "scores": {
-                    "amount": 0.5,
-                    "type": 0.4
+                    "amount": 0.059,
+                    "oldbalanceOrg": 0.044,
+                    "newbalanceOrig": 0.04,
+                    "oldbalanceDest": 0.052,
+                    "newbalanceDest": 0.104,
+                    "type": 0.055
                 }
             },
             {
