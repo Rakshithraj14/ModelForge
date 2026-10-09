@@ -1,17 +1,9 @@
-// The ModelForge mark: a forge-navy tile carrying an ember pulse (a model's vital sign).
-// Colours are fixed, not themed, so the mark reads the same in light and dark.
-export const MARK_TILE = "#1d2f5e";
-export const MARK_PULSE = "#f06a2c";
-export const PULSE_PATH = "M5 17h6l2.5-7 4 13 3-10 2 4H27";
+import Image from "next/image";
+import mark from "./logo.png";
 
-export function LogoMark({ size = 28, className }: { size?: number; className?: string }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" className={className}>
-      <rect x="0.5" y="0.5" width="31" height="31" rx="8" fill={MARK_TILE} />
-      <rect x="0.5" y="0.5" width="31" height="31" rx="8" fill="none" stroke="rgb(255 255 255 / 0.14)" />
-      <path d={PULSE_PATH} fill="none" stroke={MARK_PULSE} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
+// The ModelForge mark: a face crop of the brand illustration (app/opengraph-image.jpg).
+export function LogoMark({ size = 28, className = "" }: { size?: number; className?: string }) {
+  return <Image src={mark} alt="" width={size} height={size} className={`rounded-[8px] ring-1 ring-line ${className}`} priority />;
 }
 
 export function Wordmark({ size = 28 }: { size?: number }) {
