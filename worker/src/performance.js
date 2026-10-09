@@ -1,5 +1,7 @@
 // Accuracy/precision/recall/F1 from labeled predictions — plain confusion-
 // matrix math, no library needed.
+export const PERFORMANCE_SAMPLE_SIZE = 200;
+
 // rows: array of { prediction: 0|1, actual: 0|1 }
 export function computePerformance(rows) {
   let tp = 0;
@@ -18,5 +20,6 @@ export function computePerformance(rows) {
   const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
   const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
 
-  return { accuracy, precision, recall, f1 };
+  // without it, recall 0 can't distinguish "missed every fraud case" from "none labeled yet"
+  return { accuracy, precision, recall, f1, fraud_cases: tp + fn };
 }

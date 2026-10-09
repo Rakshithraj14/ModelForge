@@ -1,11 +1,9 @@
 import { Hono } from "hono";
 import { sendAlert } from "./alerts.js";
-import { computeDriftReport } from "./drift.js";
-import { computePerformance } from "./performance.js";
+import { DRIFT_SAMPLE_SIZE, computeDriftReport } from "./drift.js";
+import { PERFORMANCE_SAMPLE_SIZE, computePerformance } from "./performance.js";
 
 const app = new Hono();
-const DRIFT_SAMPLE_SIZE = 100;
-const PERFORMANCE_SAMPLE_SIZE = 200;
 // training recall on fraud was 1.0 (see model-service artifacts/metadata.json)
 const RECALL_ALERT_THRESHOLD = 0.8;
 
@@ -74,20 +72,35 @@ export async function runDriftCheck(env, modelId, sampleSize = DRIFT_SAMPLE_SIZE
     .bind(modelId, new Date().toISOString(), samples.length, JSON.stringify(report.scores), report.max_severity)
     .run();
 
-  if (report.max_severity === "HIGH") {
-    const drifted = Object.entries(report.scores)
-      .filter(([, score]) => score >= 0.25)
-      .map(([feature, score]) => `${feature}: PSI ${score.toFixed(2)}`)
-      .join("\n");
-    await sendAlert(env, {
-      model_id: modelId,
-      kind: "drift",
-      severity: "HIGH",
-      message: `Feature drift detected over the last ${samples.length} predictions (threshold 0.25):\n${drifted}`,
-    });
-  }
+  const alert = driftAlert(report, samples.length);
+  if (alert) await sendAlert(env, { model_id: modelId, ...alert });
 
   return { sample_size: samples.length, ...report };
+}
+
+// The alert decisions, kept pure so scripts/seed-history.mjs applies the exact same rules.
+export function driftAlert(report, sampleSize) {
+  if (report.max_severity !== "HIGH") return null;
+  const drifted = Object.entries(report.scores)
+    .filter(([, score]) => score >= 0.25)
+    .map(([feature, score]) => `${feature}: PSI ${score.toFixed(2)}`)
+    .join("\n");
+  return {
+    kind: "drift",
+    severity: "HIGH",
+    message: `Feature drift detected over the last ${sampleSize} predictions (threshold 0.25):\n${drifted}`,
+  };
+}
+
+export function performanceAlert(metrics) {
+  // recall is 0 by definition when no fraud case is labeled yet — that's "no data", not "degraded"
+  const fraudCases = metrics.fraud_cases;
+  if (fraudCases === 0 || metrics.recall >= RECALL_ALERT_THRESHOLD) return null;
+  return {
+    kind: "performance",
+    severity: "DEGRADED",
+    message: `Recall dropped to ${metrics.recall.toFixed(2)} (threshold ${RECALL_ALERT_THRESHOLD}): missed ${Math.round((1 - metrics.recall) * fraudCases)} of ${fraudCases} labeled fraud cases.\nAccuracy ${metrics.accuracy.toFixed(2)}, precision ${metrics.precision.toFixed(2)}, F1 ${metrics.f1.toFixed(2)}.`,
+  };
 }
 
 // Same shape as runDriftCheck: pulls the most recently *labeled* telemetry
@@ -105,21 +118,13 @@ export async function runPerformanceCheck(env, modelId, sampleSize = PERFORMANCE
 
   await db
     .prepare(
-      "INSERT INTO performance_reports (model_id, ts, sample_size, accuracy, precision, recall, f1) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO performance_reports (model_id, ts, sample_size, accuracy, precision, recall, f1, fraud_cases) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
     )
-    .bind(modelId, new Date().toISOString(), results.length, metrics.accuracy, metrics.precision, metrics.recall, metrics.f1)
+    .bind(modelId, new Date().toISOString(), results.length, metrics.accuracy, metrics.precision, metrics.recall, metrics.f1, metrics.fraud_cases)
     .run();
 
-  // recall is 0 by definition when no fraud case is labeled yet — that's "no data", not "degraded"
-  const fraudCases = results.filter((row) => row.actual === 1).length;
-  if (fraudCases > 0 && metrics.recall < RECALL_ALERT_THRESHOLD) {
-    await sendAlert(env, {
-      model_id: modelId,
-      kind: "performance",
-      severity: "DEGRADED",
-      message: `Recall dropped to ${metrics.recall.toFixed(2)} (threshold ${RECALL_ALERT_THRESHOLD}): missed ${Math.round((1 - metrics.recall) * fraudCases)} of ${fraudCases} labeled fraud cases.\nAccuracy ${metrics.accuracy.toFixed(2)}, precision ${metrics.precision.toFixed(2)}, F1 ${metrics.f1.toFixed(2)}.`,
-    });
-  }
+  const alert = performanceAlert(metrics);
+  if (alert) await sendAlert(env, { model_id: modelId, ...alert });
 
   return { sample_size: results.length, ...metrics };
 }
@@ -207,7 +212,7 @@ app.post("/api/v1/models/:model_id/performance/run", async (c) => {
 app.get("/api/v1/models/:model_id/performance", async (c) => {
   if (!canRead(c)) return c.json({ error: "unauthorized" }, 401);
   const row = await c.env.DB.prepare(
-    "SELECT ts, sample_size, accuracy, precision, recall, f1 FROM performance_reports WHERE model_id = ? ORDER BY id DESC LIMIT 1"
+    "SELECT ts, sample_size, accuracy, precision, recall, f1, fraud_cases FROM performance_reports WHERE model_id = ? ORDER BY id DESC LIMIT 1"
   )
     .bind(c.req.param("model_id"))
     .first();
@@ -217,12 +222,51 @@ app.get("/api/v1/models/:model_id/performance", async (c) => {
 
 app.get("/api/v1/models/:model_id/alerts", async (c) => {
   if (!canRead(c)) return c.json({ error: "unauthorized" }, 401);
+  const limit = Math.min(Math.max(Number.parseInt(c.req.query("limit") ?? "50", 10) || 50, 1), 500);
   const { results } = await c.env.DB.prepare(
-    "SELECT ts, kind, severity, message FROM alerts WHERE model_id = ? ORDER BY id DESC LIMIT 50"
+    "SELECT ts, kind, severity, message FROM alerts WHERE model_id = ? ORDER BY ts DESC LIMIT ?"
   )
-    .bind(c.req.param("model_id"))
+    .bind(c.req.param("model_id"), limit)
     .all();
   return c.json(results);
+});
+
+// One point per day for the dashboard. SQLite returns the bare columns of the row
+// that holds MAX(ts), so each day keeps its latest report and the Cron's repeats collapse.
+app.get("/api/v1/models/:model_id/daily", async (c) => {
+  if (!canRead(c)) return c.json({ error: "unauthorized" }, 401);
+  const modelId = c.req.param("model_id");
+  const days = Math.min(Math.max(Number.parseInt(c.req.query("days") ?? "365", 10) || 365, 1), 366);
+  const since = new Date(Date.now() - days * 86_400_000).toISOString();
+  const db = c.env.DB;
+
+  const [drift, performance, traffic] = await Promise.all([
+    db
+      .prepare(
+        "SELECT substr(ts, 1, 10) AS day, sample_size, scores_json, max_severity, MAX(ts) AS ts FROM drift_reports WHERE model_id = ? AND ts >= ? GROUP BY day ORDER BY day"
+      )
+      .bind(modelId, since)
+      .all(),
+    db
+      .prepare(
+        "SELECT substr(ts, 1, 10) AS day, sample_size, accuracy, precision, recall, f1, fraud_cases, MAX(ts) AS ts FROM performance_reports WHERE model_id = ? AND ts >= ? GROUP BY day ORDER BY day"
+      )
+      .bind(modelId, since)
+      .all(),
+    db
+      .prepare(
+        "SELECT substr(ts, 1, 10) AS day, COUNT(*) AS predictions, AVG(prediction) AS flagged_rate, AVG(latency_ms) AS avg_latency_ms, AVG(data_quality_score) AS avg_data_quality FROM telemetry WHERE model_id = ? AND ts >= ? GROUP BY day ORDER BY day"
+      )
+      .bind(modelId, since)
+      .all(),
+  ]);
+
+  return c.json({
+    days,
+    drift: drift.results.map(({ scores_json, ...r }) => ({ ...r, scores: JSON.parse(scores_json) })),
+    performance: performance.results,
+    traffic: traffic.results,
+  });
 });
 
 export default {

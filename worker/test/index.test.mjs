@@ -263,3 +263,15 @@ test("auth: an unset secret never matches, even 'Bearer undefined'", async () =>
     assert.strictEqual(res.status, 401, `token '${token}'`);
   }
 });
+
+// The Workers runtime treats every named export of the entry module as an
+// entrypoint and refuses to start if one isn't a function or handler. Node
+// doesn't care, so without this a constant export passes every other test
+// and only breaks once deployed.
+test("entry module: every named export is a function the Workers runtime accepts", async () => {
+  const mod = await import("../src/index.js");
+  for (const [name, value] of Object.entries(mod)) {
+    if (name === "default") continue;
+    assert.strictEqual(typeof value, "function", `export '${name}' is ${typeof value}`);
+  }
+});

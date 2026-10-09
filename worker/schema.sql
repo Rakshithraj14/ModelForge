@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS performance_reports (
   accuracy REAL NOT NULL,
   precision REAL NOT NULL,
   recall REAL NOT NULL,
-  f1 REAL NOT NULL
+  f1 REAL NOT NULL,
+  fraud_cases INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_performance_reports_model_ts ON performance_reports(model_id, ts);
