@@ -20,7 +20,10 @@ in D1 with a computed data quality score.
 - **V0 — Foundation**: trained model, FastAPI serving, Worker + D1 telemetry ingestion
 - **V1 — Data Quality**: missing/invalid-value checks against the registered schema,
   `data_quality_score` stored per telemetry row
-- V2 — Drift, V3 — Performance, V4 — Infra metrics, V5 — Alerts, V6 — Health score
+- **V2 — Drift**: PSI per feature against a training baseline, run by a 15-minute Cron
+- **V3 — Performance**: ground-truth labels via `prediction_id`, accuracy/precision/recall/F1
+- **V5 — Alerts**: Telegram and/or webhook on HIGH drift or recall below 0.8, 24h cooldown
+  per alert kind, history at `GET /api/v1/models/:id/alerts`
 
 ## model-service
 

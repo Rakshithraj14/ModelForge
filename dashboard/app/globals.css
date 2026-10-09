@@ -1,0 +1,154 @@
+@import "tailwindcss";
+
+/*
+  Tokens. One deep brand colour (forge navy) and one warm accent (ember), light and dark.
+  Ember belongs to the brand mark only: severity always uses the reserved status colours
+  with an icon and a label, so a brand colour never reads as "something is wrong".
+  Chart colours are the dataviz reference palette, validated against these surfaces.
+  Radius rule: panels 14px, controls and inputs 10px, small tags 6px.
+*/
+:root {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --surface: #fcfdfe;
+  --surface-2: #f0f3f7;
+  --ink: #0e1525;
+  --ink-2: #475066;
+  --muted: #687287;
+  --line: #e2e6ed;
+  --baseline: #c5ccd8;
+  --brand: #1d2f5e;
+  --brand-ink: #f4f6fb;
+  --accent: #f06a2c;
+  --focus: #2a78d6;
+
+  --series-1: #2a78d6;
+  --series-context: #a3abba;
+  --seq-0: #cde2fb;
+  --seq-1: #86b6ef;
+  --seq-2: #3987e5;
+  --seq-3: #1c5cab;
+  --seq-4: #0d366b;
+
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  --none: #dde2ea;
+  --delta-good: #006300;
+  --delta-bad: #b42f2f;
+
+  --shadow: 0 1px 2px rgb(29 47 94 / 0.05), 0 8px 24px -12px rgb(29 47 94 / 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --bg: #0a0e16;
+    --surface: #111725;
+    --surface-2: #172034;
+    --ink: #eef1f7;
+    --ink-2: #b3bccc;
+    --muted: #8b94a7;
+    --line: #222a3a;
+    --baseline: #384256;
+    --brand: #9db4f0;
+    --brand-ink: #0a0e16;
+    --accent: #ff7a3d;
+    --focus: #6da7ec;
+    --series-1: #3987e5;
+    --series-context: #5b6478;
+    --seq-0: #0d366b;
+    --seq-1: #256abf;
+    --seq-2: #5598e7;
+    --seq-3: #9ec5f4;
+    --seq-4: #cde2fb;
+    --none: #1e2636;
+    --delta-good: #0ca30c;
+    --delta-bad: #ef6b6b;
+    --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0a0e16;
+  --surface: #111725;
+  --surface-2: #172034;
+  --ink: #eef1f7;
+  --ink-2: #b3bccc;
+  --muted: #8b94a7;
+  --line: #222a3a;
+  --baseline: #384256;
+  --brand: #9db4f0;
+  --brand-ink: #0a0e16;
+  --accent: #ff7a3d;
+  --focus: #6da7ec;
+  --series-1: #3987e5;
+  --series-context: #5b6478;
+  --seq-0: #0d366b;
+  --seq-1: #256abf;
+  --seq-2: #5598e7;
+  --seq-3: #9ec5f4;
+  --seq-4: #cde2fb;
+  --none: #1e2636;
+  --delta-good: #0ca30c;
+  --delta-bad: #ef6b6b;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-baseline: var(--baseline);
+  --color-brand: var(--brand);
+  --color-brand-ink: var(--brand-ink);
+  --color-accent: var(--accent);
+  --color-focus: var(--focus);
+  --color-good: var(--good);
+  --color-warning: var(--warning);
+  --color-critical: var(--critical);
+  --font-display: var(--font-cabinet);
+  --font-sans: var(--font-satoshi);
+  --radius-panel: 14px;
+  --radius-control: 10px;
+  --radius-tag: 6px;
+  --shadow-panel: var(--shadow);
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-satoshi), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+[data-intro="1"] .intro-overlay {
+  display: flex;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

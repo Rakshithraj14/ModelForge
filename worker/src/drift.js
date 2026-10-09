@@ -3,6 +3,8 @@
 // baseline (see model-service/train.py); live traffic gets bucketed into the
 // same bins and compared.
 const EPSILON = 1e-4;
+// PSI gets noisy below ~100 samples: at 30 real, undrifted rows it read HIGH
+export const DRIFT_SAMPLE_SIZE = 100;
 
 function psiTerm(expected, actual) {
   const e = Math.max(expected, EPSILON);

@@ -9,7 +9,7 @@ test("computePerformance: perfect predictions score 1.0 across the board", () =>
     { prediction: 1, actual: 1 },
     { prediction: 0, actual: 0 },
   ];
-  assert.deepStrictEqual(computePerformance(rows), { accuracy: 1, precision: 1, recall: 1, f1: 1 });
+  assert.deepStrictEqual(computePerformance(rows), { accuracy: 1, precision: 1, recall: 1, f1: 1, fraud_cases: 2 });
 });
 
 test("computePerformance: all wrong predictions score 0", () => {
@@ -39,7 +39,7 @@ test("computePerformance: mixed confusion matrix computes standard metrics", () 
 });
 
 test("computePerformance: no rows returns zeros instead of NaN", () => {
-  assert.deepStrictEqual(computePerformance([]), { accuracy: 0, precision: 0, recall: 0, f1: 0 });
+  assert.deepStrictEqual(computePerformance([]), { accuracy: 0, precision: 0, recall: 0, f1: 0, fraud_cases: 0 });
 });
 
 test("computePerformance: no positive predictions avoids divide-by-zero in precision", () => {

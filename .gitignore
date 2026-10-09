@@ -23,3 +23,6 @@ worker/dist/
 
 # os / editor
 .DS_Store
+
+# browser screenshots from UI checks
+.playwright-mcp/
